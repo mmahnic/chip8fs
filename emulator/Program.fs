@@ -44,14 +44,14 @@ let exercisePaint(e : PaintEventArgs) =
     let pnBorder : Pen = new Pen(Color.Red)
     pnBorder.Width <- 3.00F
     Chip8DisplayData <- updateChip8Display Chip8DisplayData 0 0 0x31uy
-    Chip8DisplayData <- updateChip8Display Chip8DisplayData 1 1 0x31uy
+    Chip8DisplayData <- updateChip8Display Chip8DisplayData 1 1 0x51uy
     Chip8DisplayData <- updateChip8Display Chip8DisplayData 2 2 0x31uy
-    Chip8DisplayData <- updateChip8Display Chip8DisplayData 3 3 0x31uy
+    Chip8DisplayData <- updateChip8Display Chip8DisplayData 3 3 0x51uy
     Chip8DisplayData <- updateChip8Display Chip8DisplayData 2 4 0x31uy
-    Chip8DisplayData <- updateChip8Display Chip8DisplayData 1 5 0x31uy
+    Chip8DisplayData <- updateChip8Display Chip8DisplayData 1 5 0x51uy
     Chip8DisplayData <- updateChip8Display Chip8DisplayData 0 6 0x31uy
     renderChip8Display e.Graphics 0 0 Chip8DisplayData |> ignore
 
-let exercise = new Form(Size = new Size(640, 320), MaximizeBox = true, Text = "Exercise")
+let exercise = new Form(Size = new Size(640, 360), MaximizeBox = true, Text = "Exercise")
 exercise.Paint.Add exercisePaint
 do Application.Run exercise
