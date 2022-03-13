@@ -4,15 +4,13 @@ open System.Windows.Forms
 
 type Chip8Display() =
       let mutable pixels = Array.create (64 / 8 * 32 ) 0uy
-      member this.Length
-         with get() = pixels.Length
       member this.Pixels
          with get() = &pixels
 
 // https://tobiasvl.github.io/blog/write-a-chip-8-emulator/
 // Chip8Display - array of bytes, initialized to 0
 let mutable gChip8DisplayData = Chip8Display()
-printf $"{gChip8DisplayData.Length}\n"
+printf $"{gChip8DisplayData.Pixels.Length}\n"
 
 let renderChip8Display (G: Drawing.Graphics) x0 y0 (D: Chip8Display) =
    let pixSize = 9
@@ -25,7 +23,7 @@ let renderChip8Display (G: Drawing.Graphics) x0 y0 (D: Chip8Display) =
    let brushOn = new SolidBrush( Color.Red )
    let brushOff = new SolidBrush( Color.Blue )
 
-   for i in 0 .. D.Length - 1 do
+   for i in 0 .. D.Pixels.Length - 1 do
       let x = x0 + (i % (64 / 8)) * 8
       let y = y0 + i / (64 / 8)
       for shift in 0 .. 7 do
@@ -57,6 +55,49 @@ let drawTestSprite display =
     d2 <- updateChip8Display d2 1 5 0x51uy
     d2 <- updateChip8Display d2 0 6 0x31uy
     d2
+
+type Chip8Memory() =
+      let mutable bytes = Array.create (4096) 0uy
+      member this.Bytes
+         with get() = &bytes
+
+type Chip8AddressStack() =
+      let mutable addresses = Array.create (12) 0us
+      let mutable top = addresses.Length - 1
+      member this.Addresses
+         with get() = &addresses
+      member this.Top
+         with get() = addresses[top]
+
+type Chip8Registers() =
+      let mutable registers = Array.create (16) 0uy
+      member this.V0 with get() = registers[0x00] and set(v) = registers[0x00] <- v
+      member this.V1 with get() = registers[0x01] and set(v) = registers[0x01] <- v
+      member this.V2 with get() = registers[0x02] and set(v) = registers[0x02] <- v
+      member this.V3 with get() = registers[0x03] and set(v) = registers[0x03] <- v
+      member this.V4 with get() = registers[0x04] and set(v) = registers[0x04] <- v
+      member this.V5 with get() = registers[0x05] and set(v) = registers[0x05] <- v
+      member this.V6 with get() = registers[0x06] and set(v) = registers[0x06] <- v
+      member this.V7 with get() = registers[0x07] and set(v) = registers[0x07] <- v
+      member this.V8 with get() = registers[0x08] and set(v) = registers[0x08] <- v
+      member this.V9 with get() = registers[0x09] and set(v) = registers[0x09] <- v
+      member this.VA with get() = registers[0x0a] and set(v) = registers[0x0a] <- v
+      member this.VB with get() = registers[0x0b] and set(v) = registers[0x0b] <- v
+      member this.VC with get() = registers[0x0c] and set(v) = registers[0x0c] <- v
+      member this.VD with get() = registers[0x0d] and set(v) = registers[0x0d] <- v
+      member this.VE with get() = registers[0x0e] and set(v) = registers[0x0e] <- v
+      member this.VF with get() = registers[0x0f] and set(v) = registers[0x0f] <- v
+      member this.Flag with get() = registers[0x0f] and set(v) = registers[0x0f] <- v
+
+type Chip8() =
+   let mutable display = Chip8Display()
+   let mutable memory = Chip8Memory()
+   let mutable programCounter : uint16 = 0us
+   let mutable index : uint16 = 0us
+   let mutable addressStack = Chip8AddressStack()
+   let mutable delayTimer : byte = 0uy
+   let mutable soundTimer : byte = 0uy
+   let mutable registers = Chip8Registers()
 
 let exercisePaint(e : PaintEventArgs) =
     renderChip8Display e.Graphics 0 0 (drawTestSprite gChip8DisplayData) |> ignore
