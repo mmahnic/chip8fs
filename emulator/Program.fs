@@ -7,6 +7,10 @@ type Chip8Display() =
       member this.Pixels
          with get() = &pixels
 
+      member this.clear() =
+         pixels <- Array.create (64 / 8 * 32 ) 0uy
+
+
 // https://tobiasvl.github.io/blog/write-a-chip-8-emulator/
 // Chip8Display - array of bytes, initialized to 0
 let mutable gChip8DisplayData = Chip8Display()
@@ -71,6 +75,7 @@ type Chip8AddressStack() =
 
 type Chip8Registers() =
       let mutable registers = Array.create (16) 0uy
+      member this.V with get() = &registers
       member this.V0 with get() = registers[0x00] and set(v) = registers[0x00] <- v
       member this.V1 with get() = registers[0x01] and set(v) = registers[0x01] <- v
       member this.V2 with get() = registers[0x02] and set(v) = registers[0x02] <- v
@@ -98,6 +103,36 @@ type Chip8() =
    let mutable delayTimer : byte = 0uy
    let mutable soundTimer : byte = 0uy
    let mutable registers = Chip8Registers()
+
+   member this.drawSprite( rx, ry, numRows ) =
+      TODO later;;
+
+   // Fetch 2 bytes at PC as an uint16 in big endian order and increase PC.
+   member this.fetch() =
+      let pc = int programCounter
+      let op = (uint16 memory.Bytes[pc]) <<< 8 ||| (uint16 memory.Bytes[pc + 1])
+      programCounter <- programCounter + 2us
+      op
+
+   member this.execute( op, xyn ) =
+      let getx xyn = (xyn &&& 0x0f00) >>> 8 |> uint8
+      let gety xyn = (xyn &&& 0x00f0) >>> 4 |> uint8
+      let getnn xyn = (xyn &&& 0x00ff) |> uint8
+      let getnnn xyn = (xyn &&& 0x0fff) |> uint16
+
+      match op with
+         | 0x00 -> 
+            if  xyn = 0x00e0 then display.clear() 
+            else printf "Unknown"
+         | 0x10 -> programCounter <- getnnn xyn
+         | 0x60 -> registers.V[getx xyn |> int] <- getnn xyn
+         | 0xa0 -> index <- getnnn xyn
+         | 0xd0 -> this.drawSprite( getx xyn, gety xyn, getnn xyn )
+         | _ -> printf "Not yet"
+   
+   member this.run() = 
+      let op = this.fetch()
+      this.execute( int ((op &&& 0xf000us) >>> 8 ), int (op &&& 0x0fffus) )
 
 let exercisePaint(e : PaintEventArgs) =
     renderChip8Display e.Graphics 0 0 (drawTestSprite gChip8DisplayData) |> ignore
