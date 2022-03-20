@@ -1,6 +1,9 @@
 ﻿open System
 open System.Drawing
 open System.Windows.Forms
+open System.IO
+
+exception BadOperation of string
 
 type Chip8Display() =
       let mutable pixels = Array.create (64 / 8 * 32 ) 0uy
@@ -104,8 +107,14 @@ type Chip8() =
    let mutable soundTimer : byte = 0uy
    let mutable registers = Chip8Registers()
 
+   member this.Display with get() = &display
+
    member this.drawSprite( rx, ry, numRows ) =
-      TODO later;;
+      let x0 = registers.V[int rx] % 64uy
+      let y0 = registers.V[int ry] % 32uy
+      let nr = min (32uy - y0) numRows
+      for dy in 0uy .. (nr - 1uy) do
+         display <- updateChip8Display display (int x0) (int(y0 + dy)) memory.Bytes[(int index) + (int dy)]
 
    // Fetch 2 bytes at PC as an uint16 in big endian order and increase PC.
    member this.fetch() =
@@ -123,19 +132,47 @@ type Chip8() =
       match op with
          | 0x00 -> 
             if  xyn = 0x00e0 then display.clear() 
-            else printf "Unknown"
+            else raise (BadOperation( "Unknown operation" ))
          | 0x10 -> programCounter <- getnnn xyn
          | 0x60 -> registers.V[getx xyn |> int] <- getnn xyn
+         | 0x70 -> registers.V[getx xyn |> int] <- registers.V[getx xyn |> int] + getnn xyn
          | 0xa0 -> index <- getnnn xyn
          | 0xd0 -> this.drawSprite( getx xyn, gety xyn, getnn xyn )
-         | _ -> printf "Not yet"
+         | _ -> raise (BadOperation("Not yet"))
    
+   member this.jumpTo( address: uint16 ) = programCounter <- (address &&& 0x0fffus)
+
    member this.run() = 
       let op = this.fetch()
       this.execute( int ((op &&& 0xf000us) >>> 8 ), int (op &&& 0x0fffus) )
+      if programCounter < 552us  // IbmLogo infinite loop start
+      then this.run()
+
+   member this.loadIntoMemory( bytes: byte[], toAddress: uint16 ) =
+      bytes.CopyTo( memory.Bytes, int toAddress )
+
+type MachineThread() =
+      let mutable machine = Chip8()
+
+let loadRom( filename ) =
+   use stream = File.Open(filename, FileMode.Open, FileAccess.Read)
+   use mem = new MemoryStream()
+   stream.CopyTo mem
+   mem.ToArray()
 
 let exercisePaint(e : PaintEventArgs) =
-    renderChip8Display e.Graphics 0 0 (drawTestSprite gChip8DisplayData) |> ignore
+   let mutable machine = Chip8()
+   // let dir = Directory.GetCurrentDirectory() // exe directory by default
+   let rom = loadRom( "chip8rom/IbmLogo.ch8" )
+   machine.loadIntoMemory(rom, 512us)
+   try
+      machine.jumpTo(512us)
+      machine.run()
+   with
+      | BadOperation(str) -> printfn "Bad operation: %s" str
+      | _ -> printfn "Unknown error"
+
+   renderChip8Display e.Graphics 0 0 (machine.Display) |> ignore
 
 let exercise = new Form(Size = new Size(640, 360), MaximizeBox = true, Text = "Exercise")
 exercise.Paint.Add exercisePaint
