@@ -34,23 +34,35 @@ let renderChip8Display (G: Drawing.Graphics) x0 y0 (D: Chip8Display) =
       let x = x0 + (i % (64 / 8)) * 8
       let y = y0 + i / (64 / 8)
       for shift in 0 .. 7 do
-         let on = D.Pixels[i] &&& (1uy <<< (7 - shift))
+         let on = D.Pixels[i] &&& (0x80uy >>> shift)
          if on <> 0uy then
             drawPixel (x + shift) y brushOn
          else
             drawPixel (x + shift) y brushOff
 
+let log s = 
+      let appender = File.AppendText( "debug.log" )
+      appender.WriteLine( s.ToString() )
+      appender.Close() |> ignore
+
 let updateChip8Display (D : Chip8Display) x y pix8 =
+   let xorbits oldVal mask newVal =
+      let changed = (oldVal &&& mask) ^^^ newVal
+      let kept = oldVal &&& ~~~mask
+      kept ||| changed
+
    let x0 = x % 64
    let xoffs = x0 / 8
    let shift = x0 % 8
    let y0 = y % 32
    let offs = y0 * 64 / 8 + xoffs
    let mutable Dn = D
-   // TODO (mmahnic): The bits have to be x-ored
-   Dn.Pixels[offs] <- Dn.Pixels[offs] ||| (pix8 >>> shift)
+
+   // log $"(%d{x}, %d{y}) -> (%d{x0} / %d{shift}, %d{y0}) -> offs %d{offs}"
+
+   Dn.Pixels[offs] <- xorbits Dn.Pixels[offs] (0xffuy >>> shift) (pix8 >>> shift)
    if shift > 0 && x0 < 63 then
-      Dn.Pixels[offs+1] <- Dn.Pixels[offs+1] ||| (pix8 <<< (8 - shift))
+      Dn.Pixels[offs+1] <- xorbits Dn.Pixels[offs+1] (0xffuy <<< (8 - shift)) (pix8 <<< (8 - shift))
    Dn
 
 let drawTestSprite display =
@@ -113,6 +125,7 @@ type Chip8() =
       let x0 = registers.V[int rx] % 64uy
       let y0 = registers.V[int ry] % 32uy
       let nr = min (32uy - y0) numRows
+      // log $"drawSprite %d{x0} %d{y0} %d{numRows} (-> %d{nr})"
       for dy in 0uy .. (nr - 1uy) do
          display <- updateChip8Display display (int x0) (int(y0 + dy)) memory.Bytes[(int index) + (int dy)]
 
@@ -126,6 +139,7 @@ type Chip8() =
    member this.execute( op, xyn ) =
       let getx xyn = (xyn &&& 0x0f00) >>> 8 |> uint8
       let gety xyn = (xyn &&& 0x00f0) >>> 4 |> uint8
+      let getn xyn = (xyn &&& 0x000f) |> uint8
       let getnn xyn = (xyn &&& 0x00ff) |> uint8
       let getnnn xyn = (xyn &&& 0x0fff) |> uint16
 
@@ -137,7 +151,7 @@ type Chip8() =
          | 0x60 -> registers.V[getx xyn |> int] <- getnn xyn
          | 0x70 -> registers.V[getx xyn |> int] <- registers.V[getx xyn |> int] + getnn xyn
          | 0xa0 -> index <- getnnn xyn
-         | 0xd0 -> this.drawSprite( getx xyn, gety xyn, getnn xyn )
+         | 0xd0 -> this.drawSprite( getx xyn, gety xyn, getn xyn )
          | _ -> raise (BadOperation("Not yet"))
    
    member this.jumpTo( address: uint16 ) = programCounter <- (address &&& 0x0fffus)
