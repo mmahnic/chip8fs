@@ -109,6 +109,12 @@ type Chip8Registers() =
       member this.VF with get() = registers[0x0f] and set(v) = registers[0x0f] <- v
       member this.Flag with get() = registers[0x0f] and set(v) = registers[0x0f] <- v
 
+      member this.set (reg, nn) =
+         registers[reg |> int] <- nn
+
+      member this.add (reg, nn) =
+         registers[reg |> int] <- registers[reg |> int] + nn
+
 type Chip8() =
    let mutable display = Chip8Display()
    let mutable memory = Chip8Memory()
@@ -142,16 +148,18 @@ type Chip8() =
       let getn xyn = (xyn &&& 0x000f) |> uint8
       let getnn xyn = (xyn &&& 0x00ff) |> uint8
       let getnnn xyn = (xyn &&& 0x0fff) |> uint16
+      let getxyn xyn = getx xyn, gety xyn, getn xyn
+      let getxnn xyn = getx xyn, getnn xyn
 
       match op with
          | 0x00 -> 
             if  xyn = 0x00e0 then display.clear() 
             else raise (BadOperation( "Unknown operation" ))
          | 0x10 -> programCounter <- getnnn xyn
-         | 0x60 -> registers.V[getx xyn |> int] <- getnn xyn
-         | 0x70 -> registers.V[getx xyn |> int] <- registers.V[getx xyn |> int] + getnn xyn
+         | 0x60 -> getxnn xyn |> registers.set
+         | 0x70 -> getxnn xyn |> registers.add
          | 0xa0 -> index <- getnnn xyn
-         | 0xd0 -> this.drawSprite( getx xyn, gety xyn, getn xyn )
+         | 0xd0 -> getxyn xyn |> this.drawSprite 
          | _ -> raise (BadOperation("Not yet"))
    
    member this.jumpTo( address: uint16 ) = programCounter <- (address &&& 0x0fffus)
@@ -159,7 +167,7 @@ type Chip8() =
    member this.run() = 
       let op = this.fetch()
       this.execute( int ((op &&& 0xf000us) >>> 8 ), int (op &&& 0x0fffus) )
-      if programCounter < 552us  // IbmLogo infinite loop start
+      if programCounter < 552us  // TODO: remove; IbmLogo infinite loop start
       then this.run()
 
    member this.loadIntoMemory( bytes: byte[], toAddress: uint16 ) =
