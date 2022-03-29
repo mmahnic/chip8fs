@@ -82,41 +82,48 @@ type Chip8Memory() =
 
 type Chip8AddressStack() =
       let mutable addresses = Array.create (12) 0us
-      let mutable top = addresses.Length - 1
+      let mutable top = -1
+
       member this.Addresses
          with get() = &addresses
+
       member this.Top
          with get() = addresses[top]
+
+      member this.push v = 
+         top <- top + 1
+         addresses[top] <- v
+
+      member this.pop = top <- top - 1
+
+      member this.topandpop = 
+         let v = addresses[top]
+         top <- top - 1
+         v
+
 
 type Chip8Registers() =
       let mutable registers = Array.create (16) 0uy
       member this.V with get() = &registers
-      member this.V0 with get() = registers[0x00] and set(v) = registers[0x00] <- v
-      member this.V1 with get() = registers[0x01] and set(v) = registers[0x01] <- v
-      member this.V2 with get() = registers[0x02] and set(v) = registers[0x02] <- v
-      member this.V3 with get() = registers[0x03] and set(v) = registers[0x03] <- v
-      member this.V4 with get() = registers[0x04] and set(v) = registers[0x04] <- v
-      member this.V5 with get() = registers[0x05] and set(v) = registers[0x05] <- v
-      member this.V6 with get() = registers[0x06] and set(v) = registers[0x06] <- v
-      member this.V7 with get() = registers[0x07] and set(v) = registers[0x07] <- v
-      member this.V8 with get() = registers[0x08] and set(v) = registers[0x08] <- v
-      member this.V9 with get() = registers[0x09] and set(v) = registers[0x09] <- v
-      member this.VA with get() = registers[0x0a] and set(v) = registers[0x0a] <- v
-      member this.VB with get() = registers[0x0b] and set(v) = registers[0x0b] <- v
-      member this.VC with get() = registers[0x0c] and set(v) = registers[0x0c] <- v
-      member this.VD with get() = registers[0x0d] and set(v) = registers[0x0d] <- v
-      member this.VE with get() = registers[0x0e] and set(v) = registers[0x0e] <- v
-      member this.VF with get() = registers[0x0f] and set(v) = registers[0x0f] <- v
       member this.Flag with get() = registers[0x0f] and set(v) = registers[0x0f] <- v
 
       member this.set (reg, nn) =
-         registers[reg |> int] <- nn
+         registers[int reg] <- nn
 
       member this.add (reg, nn) =
-         registers[reg |> int] <- registers[reg |> int] + nn
+         registers[int reg] <- registers[int reg] + nn
+
+
+type Chip8Keyboard() =
+      let mutable keys = Array.create (16) false
+
+      member this.pressed keyIndex =
+         keys[keyIndex &&& 0x0f]
+
 
 type Chip8() =
    let mutable display = Chip8Display()
+   let mutable keyboard = Chip8Keyboard()
    let mutable memory = Chip8Memory()
    let mutable programCounter : uint16 = 0us
    let mutable index : uint16 = 0us
@@ -124,6 +131,7 @@ type Chip8() =
    let mutable delayTimer : byte = 0uy
    let mutable soundTimer : byte = 0uy
    let mutable registers = Chip8Registers()
+   let mutable randomGenerator = Random()
 
    member this.Display with get() = &display
 
@@ -135,6 +143,8 @@ type Chip8() =
       for dy in 0uy .. (nr - 1uy) do
          display <- updateChip8Display display (int x0) (int(y0 + dy)) memory.Bytes[(int index) + (int dy)]
 
+   member this.fontChar rx = uint8 rx |> ignore // TODO (mmahnic)
+
    // Fetch 2 bytes at PC as an uint16 in big endian order and increase PC.
    member this.fetch() =
       let pc = int programCounter
@@ -142,9 +152,138 @@ type Chip8() =
       programCounter <- programCounter + 2us
       op
 
+   member this.storeMem rx = uint8 rx |> ignore // TODO (mmahnic)
+
+   member this.loadMem rx = uint8 rx |> ignore // TODO (mmahnic)
+
+   member this.jump addr = programCounter <- addr
+
+   member this.subJump addr =
+         addressStack.push programCounter
+         programCounter <- addr
+
+   member this.offsJump addr = 
+         // COSMAC VIP variant
+         programCounter <- uint16 addr + uint16 registers.V[0]
+
+   member this.subReturn = programCounter <- addressStack.topandpop
+
+   member this.skipIfXnEq (rx, nn) =
+         if registers.V[int rx] = nn then programCounter <- programCounter + 2us
+
+   member this.skipIfXnNe (rx, nn) =
+         if registers.V[int rx] <> nn then programCounter <- programCounter + 2us
+
+   member this.skipIfXyEq (rx, ry) =
+         if registers.V[int rx] = registers.V[int ry] then programCounter <- programCounter + 2us
+
+   member this.skipIfXyNe (rx, ry) =
+         if registers.V[int rx] <> registers.V[int ry] then programCounter <- programCounter + 2us
+
+   member this.copyYtoX (rx, ry) =
+         registers.V[int rx] <- registers.V[int ry]
+
+   member this.orXy (rx, ry) =
+         registers.V[int rx] <- registers.V[int rx] ||| registers.V[int ry]
+
+   member this.andXy (rx, ry) =
+         registers.V[int rx] <- registers.V[int rx] &&& registers.V[int ry]
+
+   member this.xorXy (rx, ry) =
+         registers.V[int rx] <- registers.V[int rx] ^^^ registers.V[int ry]
+
+   member this.plusXy (rx, ry) =
+         let res = int registers.V[int rx] + int registers.V[int ry]
+         registers.Flag <- if res > 255 then 1uy else 0uy
+         registers.V[int rx] <- byte res
+
+   member this.minusXy (rx, ry) =
+         let res = int registers.V[int rx] - int registers.V[int ry]
+         registers.Flag <- if res < 0 then 0uy else 1uy
+         registers.V[int rx] <- if registers.Flag = 0uy then byte res else byte (res + 256)
+
+   member this.minusYx (rx, ry) =
+         let res = int registers.V[int ry] - int registers.V[int rx]
+         registers.Flag <- if res < 0 then 0uy else 1uy
+         registers.V[int rx] <- if registers.Flag = 0uy then byte res else byte (res + 256)
+
+   member this.rshiftXy (rx, ry) =
+         // COSMAC VIP variant
+         let vx = registers.V[int ry]
+         registers.Flag <- vx &&& 0x01uy
+         registers.V[int rx] <- vx >>> 1
+
+   member this.lshiftXy (rx, ry) =
+         // COSMAC VIP variant
+         let vx = registers.V[int ry]
+         registers.Flag <- (vx &&& 0x80uy) >>> 7
+         registers.V[int rx] <- vx <<< 1
+
+   member this.random (rx, nn) =
+         let rand = randomGenerator.Next(256) |> byte
+         registers.V[int rx] <- rand &&& nn
+
+   member this.binaryCodedDec rx = uint8 rx |> ignore // TODO (mmahnic)
+
+   member this.addIndex rx =
+         index <- index + uint16 registers.V[int rx]
+         // TODO (mmahnic): Amiga sets Flag when going from below 0x1000 to 0x1000 or above
+
+   member this.skipIfKeyPressed rx = 
+         if keyboard.pressed(int rx) then programCounter <- programCounter + 2us
+
+   member this.skipIfKeyReleased rx = 
+         if not (keyboard.pressed(int rx)) then programCounter <- programCounter + 2us
+
+   // wait for any key to go from "released" to "pressed"
+   // COSMAC VIP: also waits for the key to be released
+   member this.getKey rx = uint8 rx |> ignore // TODO (mmahnic)
+
+   member this.getDelayTimer rx = 
+         registers.V[int rx] <- delayTimer
+
+   member this.setDelayTimer rx = 
+         delayTimer <- registers.V[int rx]
+
+   member this.setSoundTimer rx = 
+         soundTimer <- registers.V[int rx]
+
+   member this.execNumeric (rx, ry, op) =
+      match int op with
+         | 0x00 -> this.copyYtoX (rx, ry)
+         | 0x01 -> this.orXy (rx, ry)
+         | 0x02 -> this.andXy (rx, ry)
+         | 0x03 -> this.xorXy (rx, ry)
+         | 0x04 -> this.plusXy (rx, ry)
+         | 0x05 -> this.minusXy (rx, ry)
+         | 0x06 -> this.rshiftXy (rx, ry)
+         | 0x07 -> this.minusYx (rx, ry)
+         | 0x0e -> this.lshiftXy (rx, ry)
+         | _ -> raise (BadOperation( "Unknown arithmetic operation" ))
+
+   member this.execEx (rx: uint8, op: uint8) =
+      match int op with 
+         | 0x9e -> this.skipIfKeyPressed rx
+         | 0xa1 -> this.skipIfKeyReleased rx
+         | _ -> raise (BadOperation( "Unknown 0xExnn operation" ))
+
+   member this.execFx (rx: uint8, op: uint8) =
+      match int op with 
+         | 0x07 -> this.getDelayTimer rx
+         | 0x15 -> this.setDelayTimer rx
+         | 0x18 -> this.setSoundTimer rx
+         | 0x1e -> this.addIndex rx
+         | 0x0a -> this.getKey rx
+         | 0x29 -> this.fontChar rx
+         | 0x33 -> this.binaryCodedDec rx
+         | 0x55 -> this.storeMem rx
+         | 0x65 -> this.loadMem rx
+         | _ -> raise (BadOperation( "Unknown 0xFxnn operation" ))
+
    member this.execute( op, xyn ) =
       let getx xyn = (xyn &&& 0x0f00) >>> 8 |> uint8
       let gety xyn = (xyn &&& 0x00f0) >>> 4 |> uint8
+      let getxy xyn = getx xyn, gety xyn
       let getn xyn = (xyn &&& 0x000f) |> uint8
       let getnn xyn = (xyn &&& 0x00ff) |> uint8
       let getnnn xyn = (xyn &&& 0x0fff) |> uint16
@@ -153,13 +292,25 @@ type Chip8() =
 
       match op with
          | 0x00 -> 
-            if  xyn = 0x00e0 then display.clear() 
-            else raise (BadOperation( "Unknown operation" ))
-         | 0x10 -> programCounter <- getnnn xyn
+            match xyn with
+               | 0x0e0 -> display.clear()
+               | 0x0ee -> this.subReturn
+               | _ -> raise (BadOperation( "Unknown operation" ))
+         | 0x10 -> getnnn xyn |> this.jump
+         | 0x20 -> getnnn xyn |> this.subJump
+         | 0x30 -> getxnn xyn |> this.skipIfXnEq
+         | 0x40 -> getxnn xyn |> this.skipIfXnNe
+         | 0x50 -> getxy xyn |> this.skipIfXyEq
          | 0x60 -> getxnn xyn |> registers.set
          | 0x70 -> getxnn xyn |> registers.add
+         | 0x80 -> getxyn xyn |> this.execNumeric 
+         | 0x90 -> getxy xyn |> this.skipIfXyNe
          | 0xa0 -> index <- getnnn xyn
+         | 0xb0 -> getnnn xyn |> this.offsJump
+         | 0xc0 -> getxnn xyn |> this.random
          | 0xd0 -> getxyn xyn |> this.drawSprite 
+         | 0xe0 -> getxnn xyn |> this.execEx 
+         | 0xf0 -> getxnn xyn |> this.execFx 
          | _ -> raise (BadOperation("Not yet"))
    
    member this.jumpTo( address: uint16 ) = programCounter <- (address &&& 0x0fffus)
