@@ -5,6 +5,8 @@ open System.IO
 
 exception BadOperation of string
 
+// https://tobiasvl.github.io/blog/write-a-chip-8-emulator/
+// Chip8Display - array of bytes, initialized to 0
 type Chip8Display() =
       let mutable pixels = Array.create (64 / 8 * 32 ) 0uy
       member this.Pixels
@@ -13,11 +15,6 @@ type Chip8Display() =
       member this.clear() =
          pixels <- Array.create (64 / 8 * 32 ) 0uy
 
-
-// https://tobiasvl.github.io/blog/write-a-chip-8-emulator/
-// Chip8Display - array of bytes, initialized to 0
-let mutable gChip8DisplayData = Chip8Display()
-printf $"{gChip8DisplayData.Pixels.Length}\n"
 
 let renderChip8Display (G: Drawing.Graphics) x0 y0 (D: Chip8Display) =
    let pixSize = 9
@@ -143,7 +140,9 @@ type Chip8() =
       for dy in 0uy .. (nr - 1uy) do
          display <- updateChip8Display display (int x0) (int(y0 + dy)) memory.Bytes[(int index) + (int dy)]
 
-   member this.fontChar rx = uint8 rx |> ignore // TODO (mmahnic)
+   member this.fontChar rx = 
+      // TODO (mmahnic)
+      uint8 rx |> ignore 
 
    // Fetch 2 bytes at PC as an uint16 in big endian order and increase PC.
    member this.fetch() =
@@ -152,9 +151,15 @@ type Chip8() =
       programCounter <- programCounter + 2us
       op
 
-   member this.storeMem rx = uint8 rx |> ignore // TODO (mmahnic)
+   member this.storeRegisters rx = 
+      for i in 0 .. int rx do
+         memory.Bytes[int index + i] <- registers.V[i]
+      // NOTE: COSMAC VIP changed the index registry, other variants did not. We keep it constant.
 
-   member this.loadMem rx = uint8 rx |> ignore // TODO (mmahnic)
+   member this.loadRegisters rx = 
+      for i in 0 .. int rx do
+         registers.V[i] <- memory.Bytes[int index + i]
+      // NOTE: COSMAC VIP changed the index registry, other variants did not. We keep it constant.
 
    member this.jump addr = programCounter <- addr
 
@@ -223,21 +228,29 @@ type Chip8() =
          let rand = randomGenerator.Next(256) |> byte
          registers.V[int rx] <- rand &&& nn
 
-   member this.binaryCodedDec rx = uint8 rx |> ignore // TODO (mmahnic)
+   member this.binaryCodedDec rx = 
+         memory.Bytes[int index] <- byte rx / 100uy
+         memory.Bytes[int index + 1] <- byte rx % 100uy / 10uy
+         memory.Bytes[int index + 2] <- byte rx % 10uy
+         // NOTE: We do not know if index should be increased. We keep it constant.
 
    member this.addIndex rx =
          index <- index + uint16 registers.V[int rx]
          // TODO (mmahnic): Amiga sets Flag when going from below 0x1000 to 0x1000 or above
 
    member this.skipIfKeyPressed rx = 
-         if keyboard.pressed(int rx) then programCounter <- programCounter + 2us
+         if keyboard.pressed(int rx)
+         then programCounter <- programCounter + 2us
 
    member this.skipIfKeyReleased rx = 
-         if not (keyboard.pressed(int rx)) then programCounter <- programCounter + 2us
+         if not (keyboard.pressed(int rx))
+         then programCounter <- programCounter + 2us
 
    // wait for any key to go from "released" to "pressed"
    // COSMAC VIP: also waits for the key to be released
-   member this.getKey rx = uint8 rx |> ignore // TODO (mmahnic)
+   member this.getKey rx = 
+         // TODO (mmahnic): getKey
+         uint8 rx |> ignore 
 
    member this.getDelayTimer rx = 
          registers.V[int rx] <- delayTimer
@@ -276,8 +289,8 @@ type Chip8() =
          | 0x0a -> this.getKey rx
          | 0x29 -> this.fontChar rx
          | 0x33 -> this.binaryCodedDec rx
-         | 0x55 -> this.storeMem rx
-         | 0x65 -> this.loadMem rx
+         | 0x55 -> this.storeRegisters rx
+         | 0x65 -> this.loadRegisters rx
          | _ -> raise (BadOperation( "Unknown 0xFxnn operation" ))
 
    member this.execute( op, xyn ) =
@@ -313,8 +326,6 @@ type Chip8() =
          | 0xf0 -> getxnn xyn |> this.execFx 
          | _ -> raise (BadOperation("Not yet"))
    
-   member this.jumpTo( address: uint16 ) = programCounter <- (address &&& 0x0fffus)
-
    member this.run() = 
       let op = this.fetch()
       this.execute( int ((op &&& 0xf000us) >>> 8 ), int (op &&& 0x0fffus) )
@@ -339,7 +350,7 @@ let exercisePaint(e : PaintEventArgs) =
    let rom = loadRom( "chip8rom/IbmLogo.ch8" )
    machine.loadIntoMemory(rom, 512us)
    try
-      machine.jumpTo(512us)
+      machine.jump(512us)
       machine.run()
    with
       | BadOperation(str) -> printfn "Bad operation: %s" str
