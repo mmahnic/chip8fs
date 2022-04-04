@@ -117,10 +117,16 @@ type Chip8Keyboard() =
       member this.pressed keyIndex =
          keys[keyIndex &&& 0x0f]
 
+      member this.setPressed keyIndex =
+         keys[keyIndex &&& 0x0f] <- true
 
-type Chip8() =
-   let mutable display = Chip8Display()
-   let mutable keyboard = Chip8Keyboard()
+      member this.setReleased keyIndex =
+         keys[keyIndex &&& 0x0f] <- false
+
+
+type Chip8(aDisplay: Chip8Display, aKeyboard: Chip8Keyboard) =
+   let mutable display = aDisplay
+   let mutable keyboard = aKeyboard
    let mutable memory = Chip8Memory()
    let mutable programCounter : uint16 = 0us
    let mutable index : uint16 = 0us
@@ -336,7 +342,7 @@ type Chip8() =
       bytes.CopyTo( memory.Bytes, int toAddress )
 
 type MachineThread() =
-      let mutable machine = Chip8()
+      let mutable machine = None
 
 let loadRom( filename ) =
    use stream = File.Open(filename, FileMode.Open, FileAccess.Read)
@@ -344,8 +350,7 @@ let loadRom( filename ) =
    stream.CopyTo mem
    mem.ToArray()
 
-let exercisePaint(e : PaintEventArgs) =
-   let mutable machine = Chip8()
+let exercisePaint (machine: Chip8) (e : PaintEventArgs) =
    // let dir = Directory.GetCurrentDirectory() // exe directory by default
    let rom = loadRom( "chip8rom/IbmLogo.ch8" )
    machine.loadIntoMemory(rom, 512us)
@@ -358,6 +363,41 @@ let exercisePaint(e : PaintEventArgs) =
 
    renderChip8Display e.Graphics 0 0 (machine.Display) |> ignore
 
+let extractKey (e: KeyEventArgs) =
+   match e.KeyCode with
+      | Keys.D1 -> Some( 0 )
+      | Keys.D2 -> Some( 1 )
+      | Keys.D3 -> Some( 2 )
+      | Keys.D4 -> Some( 3 )
+      | Keys.Q -> Some( 4 )
+      | Keys.W -> Some( 5 )
+      | Keys.E -> Some( 6 )
+      | Keys.R -> Some( 7 )
+      | Keys.A -> Some( 8 )
+      | Keys.S -> Some( 9 )
+      | Keys.D -> Some( 0x0a )
+      | Keys.F -> Some( 0x0b )
+      | Keys.Y -> Some( 0x0c )
+      | Keys.X -> Some( 0x0d )
+      | Keys.C -> Some( 0x0e )
+      | Keys.V -> Some( 0x0f )
+      | _ -> None
+
+let exerciseKeyDown (keyboard: Chip8Keyboard) (e : KeyEventArgs) =
+   match extractKey( e ) with 
+      | Some( x ) -> keyboard.setPressed x 
+      | None -> ignore 0
+
+let exerciseKeyUp (keyboard: Chip8Keyboard) (e : KeyEventArgs) =
+   match extractKey( e ) with 
+      | Some( x ) -> keyboard.setReleased x 
+      | None -> ignore 0
+
 let exercise = new Form(Size = new Size(640, 360), MaximizeBox = true, Text = "Exercise")
-exercise.Paint.Add exercisePaint
+let mutable keyboard = Chip8Keyboard()
+let mutable display = Chip8Display()
+let mutable machine = Chip8(display, keyboard)
+exercise.Paint.Add (exercisePaint machine)
+exercise.KeyDown.Add (exerciseKeyDown keyboard)
+exercise.KeyUp.Add (exerciseKeyUp keyboard)
 do Application.Run exercise
