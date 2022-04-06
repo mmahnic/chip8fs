@@ -112,16 +112,27 @@ type Chip8Registers() =
 
 
 type Chip8Keyboard() =
-      let mutable keys = Array.create (16) false
+      let mutable keyStates = uint16 0x00
 
       member this.pressed keyIndex =
-         keys[keyIndex &&& 0x0f]
+         keyStates &&& (uint16 0x01 <<< (keyIndex &&& 0x0f)) = uint16 0
 
       member this.setPressed keyIndex =
-         keys[keyIndex &&& 0x0f] <- true
+         keyStates <- keyStates ||| (uint16 0x01 <<< (keyIndex &&& 0x0f))
 
       member this.setReleased keyIndex =
-         keys[keyIndex &&& 0x0f] <- false
+         keyStates <- keyStates &&& (~~~ (uint16 0x01 <<< (keyIndex &&& 0x0f)))
+
+      member this.getState = keyStates
+
+      member this.lowestPressedKey state =
+         if state = (uint16 0) then None
+         else
+            let rec lowbit count bits =
+               match int(bits &&& uint16 0x01) with
+                  | 0 -> lowbit (count + 1) (bits >>> 1)
+                  | _ -> Some( byte count )
+            lowbit 0 state
 
 
 type Chip8(aDisplay: Chip8Display, aKeyboard: Chip8Keyboard) =
@@ -147,7 +158,7 @@ type Chip8(aDisplay: Chip8Display, aKeyboard: Chip8Keyboard) =
          display <- updateChip8Display display (int x0) (int(y0 + dy)) memory.Bytes[(int index) + (int dy)]
 
    member this.fontChar rx = 
-      // TODO (mmahnic)
+      // TODO (mmahnic): render character
       uint8 rx |> ignore 
 
    // Fetch 2 bytes at PC as an uint16 in big endian order and increase PC.
@@ -255,8 +266,28 @@ type Chip8(aDisplay: Chip8Display, aKeyboard: Chip8Keyboard) =
    // wait for any key to go from "released" to "pressed"
    // COSMAC VIP: also waits for the key to be released
    member this.getKey rx = 
-         // TODO (mmahnic): getKey
-         uint8 rx |> ignore 
+         // NOTE: this implementation is incorrect. The getKey instruction should be executed
+         // repeatedly until a key is pressed.
+         //    What does this mean:
+         //      - ... stops execution and waits for key input.
+         //      - If a key is pressed while this instruction is waiting for input, ...
+         //    Is the condition: "any key is in pressed state" or "any key goes from unpressed
+         //    to pressed state"?
+         //    The current version implements the latter.
+         let state = keyboard.getState 
+         let mutable newState = keyboard.getState
+
+         let getPressed olds news =
+            let goneOn = ~~~olds &&& news
+            keyboard.lowestPressedKey goneOn
+
+         let mutable pressed = getPressed state keyboard.getState
+         while pressed = None do
+            System.Threading.Thread.Sleep(20)
+            pressed <- getPressed state keyboard.getState
+
+         registers.V[int rx] <- pressed.Value
+
 
    member this.getDelayTimer rx = 
          registers.V[int rx] <- delayTimer
