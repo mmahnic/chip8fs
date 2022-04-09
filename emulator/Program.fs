@@ -134,6 +134,15 @@ type Chip8Keyboard() =
                   | _ -> Some( byte count )
             lowbit 0 state
 
+      member this.highestPressedKey state =
+         if state = (uint16 0) then None
+         else
+            let rec highBit count bits =
+               match int(bits &&& uint16 0x80) with
+                  | 0 -> highBit (count - 1) (bits <<< 1)
+                  | _ -> Some( byte count )
+            highBit 15 state
+
 
 type Chip8(aDisplay: Chip8Display, aKeyboard: Chip8Keyboard) =
    let mutable display = aDisplay
@@ -263,31 +272,11 @@ type Chip8(aDisplay: Chip8Display, aKeyboard: Chip8Keyboard) =
          if not (keyboard.pressed(int rx))
          then programCounter <- programCounter + 2us
 
-   // wait for any key to go from "released" to "pressed"
-   // COSMAC VIP: also waits for the key to be released
    member this.getKey rx = 
-         // NOTE: this implementation is incorrect. The getKey instruction should be executed
-         // repeatedly until a key is pressed.
-         //    What does this mean:
-         //      - ... stops execution and waits for key input.
-         //      - If a key is pressed while this instruction is waiting for input, ...
-         //    Is the condition: "any key is in pressed state" or "any key goes from unpressed
-         //    to pressed state"?
-         //    The current version implements the latter.
-         let state = keyboard.getState 
-         let mutable newState = keyboard.getState
-
-         let getPressed olds news =
-            let goneOn = ~~~olds &&& news
-            keyboard.lowestPressedKey goneOn
-
-         let mutable pressed = getPressed state keyboard.getState
-         while pressed = None do
-            System.Threading.Thread.Sleep(20)
-            pressed <- getPressed state keyboard.getState
-
-         registers.V[int rx] <- pressed.Value
-
+      match keyboard.highestPressedKey keyboard.getState  with
+         | Some( keyIndex )  -> registers.V[int rx] <- keyIndex
+         | None -> programCounter <- programCounter - 2us
+      // NOTE: COSMAC VIP: also waits for the key to be released
 
    member this.getDelayTimer rx = 
          registers.V[int rx] <- delayTimer
