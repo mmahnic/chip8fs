@@ -72,10 +72,45 @@ let drawTestSprite display =
     d2 <- updateChip8Display d2 0 6 0x31uy
     d2
 
+
 type Chip8Memory() =
       let mutable bytes = Array.create (4096) 0uy
+
       member this.Bytes
          with get() = &bytes
+
+      member this.loadIntoMemory (bytes: byte[]) (toAddress: uint16) =
+         bytes.CopyTo( bytes, int toAddress )
+
+type Chip8Bios() =
+      let font: byte array = [|
+         0xF0uy; 0x90uy; 0x90uy; 0x90uy; 0xF0uy; // 0
+         0x20uy; 0x60uy; 0x20uy; 0x20uy; 0x70uy; // 1
+         0xF0uy; 0x10uy; 0xF0uy; 0x80uy; 0xF0uy; // 2
+         0xF0uy; 0x10uy; 0xF0uy; 0x10uy; 0xF0uy; // 3
+         0x90uy; 0x90uy; 0xF0uy; 0x10uy; 0x10uy; // 4
+         0xF0uy; 0x80uy; 0xF0uy; 0x10uy; 0xF0uy; // 5
+         0xF0uy; 0x80uy; 0xF0uy; 0x90uy; 0xF0uy; // 6
+         0xF0uy; 0x10uy; 0x20uy; 0x40uy; 0x40uy; // 7
+         0xF0uy; 0x90uy; 0xF0uy; 0x90uy; 0xF0uy; // 8
+         0xF0uy; 0x90uy; 0xF0uy; 0x10uy; 0xF0uy; // 9
+         0xF0uy; 0x90uy; 0xF0uy; 0x90uy; 0x90uy; // A
+         0xE0uy; 0x90uy; 0xE0uy; 0x90uy; 0xE0uy; // B
+         0xF0uy; 0x80uy; 0x80uy; 0x80uy; 0xF0uy; // C
+         0xE0uy; 0x90uy; 0x90uy; 0x90uy; 0xE0uy; // D
+         0xF0uy; 0x80uy; 0xF0uy; 0x80uy; 0xF0uy; // E
+         0xF0uy; 0x80uy; 0xF0uy; 0x80uy; 0x80uy  // F
+      |]
+
+      // Use a commonly used location where the font is stored in memory.
+      // It can be stored in any location between 0x0000 and 0x01ff.
+      let fontAddress = 0x0050us
+
+      member this.FontAddress
+         with get() = fontAddress
+
+      member this.loadFont (memory: Chip8Memory) =
+         memory.loadIntoMemory font fontAddress
 
 type Chip8AddressStack() =
       let mutable addresses = Array.create (12) 0us
@@ -155,6 +190,9 @@ type Chip8(aDisplay: Chip8Display, aKeyboard: Chip8Keyboard) =
    let mutable soundTimer : byte = 0uy
    let mutable registers = Chip8Registers()
    let mutable randomGenerator = Random()
+   let bios = Chip8Bios()
+   do
+      bios.loadFont memory
 
    member this.Display with get() = &display
 
@@ -167,8 +205,8 @@ type Chip8(aDisplay: Chip8Display, aKeyboard: Chip8Keyboard) =
          display <- updateChip8Display display (int x0) (int(y0 + dy)) memory.Bytes[(int index) + (int dy)]
 
    member this.fontChar rx = 
-      // TODO (mmahnic): render character
-      uint8 rx |> ignore 
+      index <- bios.FontAddress + uint16(((int rx) &&& 0x0f) * 5)
+      // NOTE: &&& 0x0f - COSMAC VIP uses only the low nibble for the index -> max 16 characters
 
    // Fetch 2 bytes at PC as an uint16 in big endian order and increase PC.
    member this.fetch() =
@@ -340,6 +378,7 @@ type Chip8(aDisplay: Chip8Display, aKeyboard: Chip8Keyboard) =
          | 0x30 -> getxnn xyn |> this.skipIfXnEq
          | 0x40 -> getxnn xyn |> this.skipIfXnNe
          | 0x50 -> getxy xyn |> this.skipIfXyEq
+
          | 0x60 -> getxnn xyn |> registers.set
          | 0x70 -> getxnn xyn |> registers.add
          | 0x80 -> getxyn xyn |> this.execNumeric 
@@ -358,8 +397,8 @@ type Chip8(aDisplay: Chip8Display, aKeyboard: Chip8Keyboard) =
       if programCounter < 552us  // TODO: remove; IbmLogo infinite loop start
       then this.run()
 
-   member this.loadIntoMemory( bytes: byte[], toAddress: uint16 ) =
-      bytes.CopyTo( memory.Bytes, int toAddress )
+   member this.loadIntoMemory (bytes: byte[]) (toAddress: uint16) =
+      memory.loadIntoMemory bytes toAddress
 
 type MachineThread() =
       let mutable machine = None
@@ -373,7 +412,7 @@ let loadRom( filename ) =
 let exercisePaint (machine: Chip8) (e : PaintEventArgs) =
    // let dir = Directory.GetCurrentDirectory() // exe directory by default
    let rom = loadRom( "chip8rom/IbmLogo.ch8" )
-   machine.loadIntoMemory(rom, 512us)
+   machine.loadIntoMemory rom 512us
    try
       machine.jump(512us)
       machine.run()
