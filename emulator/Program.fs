@@ -9,11 +9,16 @@ exception BadOperation of string
 // Chip8Display - array of bytes, initialized to 0
 type Chip8Display() =
       let mutable pixels = Array.create (64 / 8 * 32 ) 0uy
+      let mutable modified = false
+
       member this.Pixels
          with get() = &pixels
 
       member this.clear() =
          pixels <- Array.create (64 / 8 * 32 ) 0uy
+
+      member this.Modified
+         with get() = &modified
 
 
 let renderChip8Display (G: Drawing.Graphics) x0 y0 (D: Chip8Display) =
@@ -60,6 +65,7 @@ let updateChip8Display (D : Chip8Display) x y pix8 =
    Dn.Pixels[offs] <- xorbits Dn.Pixels[offs] (0xffuy >>> shift) (pix8 >>> shift)
    if shift > 0 && x0 < 63 then
       Dn.Pixels[offs+1] <- xorbits Dn.Pixels[offs+1] (0xffuy <<< (8 - shift)) (pix8 <<< (8 - shift))
+   Dn.Modified <- true
    Dn
 
 let drawTestSprite display =
@@ -80,7 +86,7 @@ type Chip8Memory() =
          with get() = &bytes
 
       member this.loadIntoMemory (bytes: byte[]) (toAddress: uint16) =
-         bytes.CopyTo( bytes, int toAddress )
+         bytes.CopyTo( this.Bytes, int toAddress )
 
 type Chip8Bios() =
       let font: byte array = [|
@@ -391,11 +397,14 @@ type Chip8(aDisplay: Chip8Display, aKeyboard: Chip8Keyboard) =
          | 0xf0 -> getxnn xyn |> this.execFx 
          | _ -> raise (BadOperation("Not yet"))
    
-   member this.run() = 
+   member this.runOne() =
       let op = this.fetch()
       this.execute( int ((op &&& 0xf000us) >>> 8 ), int (op &&& 0x0fffus) )
+
+   member this.demoRun() =
+      this.runOne()
       if programCounter < 552us  // TODO: remove; IbmLogo infinite loop start
-      then this.run()
+      then this.demoRun()
 
    member this.loadIntoMemory (bytes: byte[]) (toAddress: uint16) =
       memory.loadIntoMemory bytes toAddress
@@ -410,16 +419,6 @@ let loadRom( filename ) =
    mem.ToArray()
 
 let exercisePaint (machine: Chip8) (e : PaintEventArgs) =
-   // let dir = Directory.GetCurrentDirectory() // exe directory by default
-   let rom = loadRom( "chip8rom/IbmLogo.ch8" )
-   machine.loadIntoMemory rom 512us
-   try
-      machine.jump(512us)
-      machine.run()
-   with
-      | BadOperation(str) -> printfn "Bad operation: %s" str
-      | _ -> printfn "Unknown error"
-
    renderChip8Display e.Graphics 0 0 (machine.Display) |> ignore
 
 let extractKey (e: KeyEventArgs) =
@@ -452,6 +451,24 @@ let exerciseKeyUp (keyboard: Chip8Keyboard) (e : KeyEventArgs) =
       | Some( x ) -> keyboard.setReleased x 
       | None -> ignore 0
 
+
+let exerciseProcessBatch (machine: Chip8, exercise: Form) (e: EventArgs ) =
+   try
+      machine.runOne()
+      if machine.Display.Modified
+      then
+         exercise.Invalidate()
+         machine.Display.Modified <- false
+   with
+      | BadOperation(str) -> printfn "Bad operation: %s" str
+      | _ -> printfn "Unknown error"
+
+
+let bootMachine (machine: Chip8) =
+   let rom = loadRom( "chip8rom/IbmLogo.ch8" )
+   machine.loadIntoMemory rom 512us
+   machine.jump(512us)
+
 let exercise = new Form(Size = new Size(640, 360), MaximizeBox = true, Text = "Exercise")
 let mutable keyboard = Chip8Keyboard()
 let mutable display = Chip8Display()
@@ -459,4 +476,12 @@ let mutable machine = Chip8(display, keyboard)
 exercise.Paint.Add (exercisePaint machine)
 exercise.KeyDown.Add (exerciseKeyDown keyboard)
 exercise.KeyUp.Add (exerciseKeyUp keyboard)
+
+bootMachine machine
+
+let mutable timer = new System.Windows.Forms.Timer()
+timer.Interval <- 1
+timer.Tick.Add(exerciseProcessBatch (machine, exercise))
+timer.Start()
+
 do Application.Run exercise
