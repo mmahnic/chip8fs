@@ -464,6 +464,35 @@ let exerciseProcessBatch (machine: Chip8, exercise: Form) (e: EventArgs ) =
       | _ -> printfn "Unknown error"
 
 
+let forceInvalidate (exercise: Form) (e: EventArgs ) =
+   exercise.Invalidate()
+
+
+let mutable worker: Threading.Thread = null
+let mutable workerActive: bool = false
+
+let workerThreadLoop(machine: Chip8) () =
+   while workerActive do
+      try
+         machine.runOne()
+      with
+         | BadOperation(str) -> printfn "Bad operation: %s" str
+         | _ -> printfn "Unknown error"
+
+
+let startWorkerThread (machine: Chip8) =
+   worker <- new Threading.Thread(new Threading.ThreadStart( workerThreadLoop(machine) ))
+   workerActive <- true
+   worker.Start()
+
+let stopWorkerThread (e: EventArgs) =
+   if worker <> null
+   then
+      workerActive <- false
+      worker.Join()
+      worker <- null
+
+
 let bootMachine (machine: Chip8) =
    let rom = loadRom( "chip8rom/IbmLogo.ch8" )
    machine.loadIntoMemory rom 512us
@@ -476,12 +505,18 @@ let mutable machine = Chip8(display, keyboard)
 exercise.Paint.Add (exercisePaint machine)
 exercise.KeyDown.Add (exerciseKeyDown keyboard)
 exercise.KeyUp.Add (exerciseKeyUp keyboard)
+exercise.Closing.Add (stopWorkerThread)
 
 bootMachine machine
 
+// let mutable timer = new System.Windows.Forms.Timer()
+// timer.Interval <- 1
+// timer.Tick.Add(exerciseProcessBatch (machine, exercise))
+// timer.Start()
+startWorkerThread machine
 let mutable timer = new System.Windows.Forms.Timer()
-timer.Interval <- 1
-timer.Tick.Add(exerciseProcessBatch (machine, exercise))
+timer.Interval <- 100
+timer.Tick.Add(forceInvalidate (exercise))
 timer.Start()
 
 do Application.Run exercise
